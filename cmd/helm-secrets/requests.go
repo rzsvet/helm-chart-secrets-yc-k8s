@@ -9,7 +9,7 @@ import (
 
 	"github.com/gorilla/mux"
 
-        "github.com/streadway/amqp"
+	"github.com/streadway/amqp"
 )
 
 type Request struct {
@@ -99,30 +99,30 @@ func addRequest(w http.ResponseWriter, r *http.Request) {
 		request.TextURL = *req.TextURL
 	}
 
-		// Publishing data to rabbitmq
-		msg, err := json.Marshal(request)
-		if err != nil {
-                log.Printf("ERROR: Marshaling request: %s\n", err)
-                returnResponse(500, "Can't marshal request ", nil, w)
-			return
-		}
-
-		err = ch.Publish(
-			"VideoParserExchange", // exchange
-			"",                      // routing key
-			false,                   // mandatory - could return an error if there are no consumers or queue
-			false,                   // immediate
-			amqp.Publishing{
-				DeliveryMode: amqp.Persistent,
-				ContentType:  "application/json",
-				Body:         msg,
-			})
-
-		if err != nil {
-                log.Printf("ERROR: Publishing to rabbit: %s\n", err)
-                returnResponse(500, "Can't publish to rabbit ", nil, w)
+	// Publishing data to rabbitmq
+	msg, err := json.Marshal(request)
+	if err != nil {
+		log.Printf("ERROR: Marshaling request: %s\n", err)
+		returnResponse(500, "Can't marshal request ", nil, w)
 		return
-		}
+	}
+
+	err = ch.Publish(
+		"VideoParserExchange", // exchange
+		"",                    // routing key
+		false,                 // mandatory - could return an error if there are no consumers or queue
+		false,                 // immediate
+		amqp.Publishing{
+			DeliveryMode: amqp.Persistent,
+			ContentType:  "application/json",
+			Body:         msg,
+		})
+
+	if err != nil {
+		log.Printf("ERROR: Publishing to rabbit: %s\n", err)
+		returnResponse(500, "Can't publish to rabbit ", nil, w)
+		return
+	}
 
 	stmt := `INSERT INTO requests (name, description, processed, video_url, text_url) VALUES ($1, $2, $3, $4, $5) RETURNING id`
 	err = db.QueryRow(stmt, &request.Name, &request.Description, &request.Processed, &request.VideoURL, &request.TextURL).Scan(&request.ID)

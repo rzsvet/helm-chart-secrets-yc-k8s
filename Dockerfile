@@ -1,28 +1,15 @@
-FROM golang:1.15-alpine AS build
-
-# Installing requirements
-RUN apk add --update git && \
-    rm -rf /tmp/* /var/tmp/* /var/cache/apk/* /var/cache/distfiles/*
-
-# Creating workdir and copying dependencies
-WORKDIR /go/src/app
+# Build environment
+# -----------------
+FROM golang:1.15-alpine as build-env
+WORKDIR /helm-secrets
+RUN apk update && apk add --no-cache gcc musl-dev git
 COPY . .
+RUN go build -ldflags '-w -s' -a -o ./bin/helm-secrets ./cmd/helm-secrets
 
-# Installing dependencies
-RUN go get
-ENV CGO_ENABLED=0
-
-RUN go build -o api main.go requests.go
-
-FROM alpine:3.9.6
-
-RUN echo "http://dl-cdn.alpinelinux.org/alpine/edge/testing/" >> /etc/apk/repositories && \
-    apk add --update bash && \
-    rm -rf /tmp/* /var/tmp/* /var/cache/apk/* /var/cache/distfiles/*
-
-WORKDIR /app
-
-COPY --from=build /go/src/app/api /app/api
-COPY ./migrations/ /app/migrations/
-
-CMD ["/app/api"]
+# Deployment environment
+# ----------------------
+FROM alpine
+RUN apk update && apk add --no-cache bash
+COPY --from=build-env /helm-secrets/bin/helm-secrets /opt/
+COPY migrations /opt/migrations
+CMD ["/opt/helm-secrets"]
