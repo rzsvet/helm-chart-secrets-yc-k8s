@@ -16,3 +16,7 @@ ingress:
 resources: {}
 tolerations: []
 affinity: {}
+
+public_env_variables: {}
+  
+private_env_variables: {}
