@@ -55,7 +55,6 @@ metadata:
   name: postgres
   labels:
     app: postgres
-
 spec:
   replicas: 1
   selector:
@@ -66,6 +65,10 @@ spec:
       labels:
         app: postgres
     spec:
+      {{- with .Values.postgres.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
       - name: postgres
         image: {{ .Values.postgres.image.repository }}:{{ .Values.postgres.image.tag }}

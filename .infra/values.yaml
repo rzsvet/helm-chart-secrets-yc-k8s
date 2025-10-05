@@ -1,0 +1,15 @@
+postgres:
+  enabled: true
+  image:
+    repository: cr.yandex/crpmdfgl9uu5ko21plpc/services/postgres
+    tag: 15.14-alpine3.22
+  imagePullSecrets:
+    - name: docker-config-json-puller
+
+rabbitmq:
+  enabled: true
+  image:
+    repository: cr.yandex/crpmdfgl9uu5ko21plpc/services/rabbitmq
+    tag: 4.1.4-management-alpine
+  imagePullSecrets: 
+    - name: docker-config-json-puller

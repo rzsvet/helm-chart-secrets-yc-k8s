@@ -183,6 +183,8 @@ postgres:
   image:
     repository: postgres
     tag: 15.14-alpine3.22
+
+  imagePullSecrets: []
   
   # Учетные данные (будут закодированы в base64 в Secret)
   envSecret:
@@ -225,6 +227,8 @@ rabbitmq:
   image:
     repository: rabbitmq
     tag: 4.1.4-management-alpine
+
+  imagePullSecrets: []
   
   # Учетные данные
   envSecret:
