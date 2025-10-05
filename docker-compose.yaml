@@ -1,0 +1,85 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: ./Dockerfile
+    container_name: app
+    hostname: app
+    environment:
+      GIN_MODE: "release"
+      PGSQL_URI: "postgresql://${POSTGRES_USER:-root}:${POSTGRES_PASSWORD:-password}@postgres:5432/${POSTGRES_DB:-db}?sslmode=disable"
+      RABBIT_URI: "amqp://${RABBITMQ_DEFAULT_USER:-root}:${RABBITMQ_DEFAULT_PASS:-password}@rabbitmq:5672/"
+      MIGRATION_PATH: "${MIGRATION_PATH:-/migrations}"
+      LISTEN: "${LISTEN:-8080}"
+      API_TOKEN: "${API_TOKEN:-804b95f13b714ee9912b19861faf3d25}"
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "/helm-secrets", "-health-check"]
+      interval: 40s
+      timeout: 30s
+      retries: 5
+      start_period: 60s
+    networks:
+      - app-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+        restart: true
+      rabbitmq:
+        condition: service_healthy
+        restart: true
+
+  postgres:
+    image: postgres:15.14-alpine3.22
+    container_name: postgres
+    hostname: postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-db}
+      POSTGRES_USER: ${POSTGRES_USER:-root}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready", "-d", "${POSTGRES_DB:-db}"]
+      interval: 40s
+      timeout: 30s
+      retries: 5
+      start_period: 60s
+    volumes:
+      - postgres_data:/var/lib/postgresql/data      
+    ports:
+      - "5432:5432"
+    networks:
+      - app-network
+
+  rabbitmq:
+    image: rabbitmq:4.1.4-management-alpine
+    container_name: rabbitmq
+    hostname: rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:-root}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:-password}
+    healthcheck:
+      test: rabbitmq-diagnostics -q ping
+      interval: 40s
+      timeout: 30s
+      retries: 5
+      start_period: 60s
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq      
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    networks:
+      - app-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+        restart: true
+
+networks:
+  app-network:
+
+volumes:
+  postgres_data:
+  rabbitmq_data:

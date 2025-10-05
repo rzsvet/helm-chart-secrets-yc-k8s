@@ -1,15 +1,17 @@
 # Build environment
 # -----------------
-FROM golang:1.15-alpine as build-env
+FROM golang:1.25.1-alpine3.22 AS build-env
 WORKDIR /helm-secrets
-RUN apk update && apk add --no-cache gcc musl-dev git
-COPY . .
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY ./cmd ./cmd/
 RUN go build -ldflags '-w -s' -a -o ./bin/helm-secrets ./cmd/helm-secrets
 
 # Deployment environment
 # ----------------------
-FROM alpine
-RUN apk update && apk add --no-cache bash
-COPY --from=build-env /helm-secrets/bin/helm-secrets /opt/
-COPY migrations /opt/migrations
-CMD ["/opt/helm-secrets"]
+FROM scratch
+COPY --from=build-env /helm-secrets/bin/helm-secrets .
+COPY migrations /migrations
+CMD ["/helm-secrets"]

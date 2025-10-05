@@ -1,0 +1,200 @@
+{{- if .Values.rabbitmq.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rabbitmq-config
+  labels:
+    app: rabbitmq
+data:
+  rabbitmq.conf: |
+    # RabbitMQ Configuration
+    {{- range $key, $value := .Values.rabbitmq.configuration }}
+    {{ $key }} = {{ $value }}
+    {{- end }}
+---
+{{- if eq .Values.secretProvider "" }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: rabbitmq-secret
+  labels:
+    app: rabbitmq
+type: Opaque
+data:
+  {{- range $key, $value := .Values.rabbitmq.envSecret }}
+  {{ $key }}: {{ $value | b64enc | quote }}
+  {{- end }}
+{{- else if regexMatch "^external[ -]?secret$" (lower .Values.secretProvider) }}
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: rabbitmq-external-secret
+  labels:
+    app: rabbitmq
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: {{ include "chart.fullname" . }}-secret-store
+    kind: ClusterSecretStore
+  target:
+    name:  rabbitmq-secret
+    labels:
+        app: rabbitmq
+  data:
+    {{- range $key, $value := .Values.rabbitmq.envSecret }}
+    - secretKey: {{ $key }} 
+      remoteRef:
+        key: {{ $.Values.externalSecret.id }}
+        property: {{ $key }}
+    {{- end }}
+{{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rabbitmq
+  labels:
+    app: rabbitmq
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rabbitmq
+  template:
+    metadata:
+      labels:
+        app: rabbitmq
+    spec:
+      containers:
+      - name: rabbitmq
+        image: {{ .Values.rabbitmq.image.repository }}:{{ .Values.rabbitmq.image.tag }}
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: amqp
+          containerPort: 5672
+        - name: management
+          containerPort: 15672
+        env:
+        - name: RABBITMQ_NODENAME
+          value: rabbit@localhost
+        envFrom:
+          - secretRef:
+              name:  rabbitmq-secret
+        volumeMounts:
+        - name: rabbitmq-storage
+          mountPath: /var/lib/rabbitmq
+        - name: rabbitmq-config
+          mountPath: /etc/rabbitmq/rabbitmq.conf
+          subPath: rabbitmq.conf
+        livenessProbe:
+          exec:
+            command:
+            - sh
+            - -c
+            - rabbitmq-diagnostics -q ping
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          exec:
+            command:
+            - sh
+            - -c
+            - rabbitmq-diagnostics -q check_running && rabbitmq-diagnostics -q check_local_alarms
+          initialDelaySeconds: 20
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        resources:
+          {{- toYaml .Values.rabbitmq.resources | nindent 12 }}
+        {{- if .Values.rabbitmq.lifecycle }}
+        lifecycle:
+          {{- toYaml .Values.rabbitmq.lifecycle | nindent 12 }}
+        {{- end }}
+      volumes:
+      - name: rabbitmq-storage
+        {{- if .Values.rabbitmq.persistence.enabled }}
+        persistentVolumeClaim:
+          claimName: rabbitmq-pvc
+        {{- else }}
+        emptyDir: {}
+        {{- end }}
+      - name: rabbitmq-config
+        configMap:
+          name: rabbitmq-config
+---
+{{- if .Values.rabbitmq.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: rabbitmq-pvc
+  labels:
+    app: rabbitmq
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.rabbitmq.persistence.size }}
+  {{- if .Values.rabbitmq.persistence.storageClass }}
+  storageClassName: {{ .Values.rabbitmq.persistence.storageClass }}
+  {{- end }}
+{{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rabbitmq
+  labels:
+    app: rabbitmq
+spec:
+  type: {{ .Values.rabbitmq.service.type }}
+  ports:
+  - name: amqp
+    port: {{ .Values.rabbitmq.service.amqpPort }}
+    targetPort: 5672
+    {{- if eq .Values.rabbitmq.service.type "NodePort" }}
+    nodePort: {{ .Values.rabbitmq.service.amqpNodePort }}
+    {{- end }}
+  - name: management
+    port: {{ .Values.rabbitmq.service.managementPort }}
+    targetPort: 15672
+    {{- if eq .Values.rabbitmq.service.type "NodePort" }}
+    nodePort: {{ .Values.rabbitmq.service.managementNodePort }}
+    {{- end }}
+  selector:
+    app: rabbitmq
+---
+{{- if .Values.rabbitmq.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: rabbitmq-management
+  labels:
+    app: rabbitmq
+  annotations:
+    {{- range $key, $value := .Values.rabbitmq.ingress.annotations }}
+    {{ $key }}: {{ $value | quote }}
+    {{- end }}
+spec:
+  ingressClassName: {{ .Values.rabbitmq.ingress.ingressClassName }}
+  rules:
+  - host: {{ .Values.rabbitmq.ingress.host }}
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: rabbitmq
+            port:
+              number: {{ .Values.rabbitmq.service.managementPort }}
+  {{- if .Values.rabbitmq.ingress.tls }}
+  tls:
+  - hosts:
+    - {{ .Values.rabbitmq.ingress.host }}
+    secretName: {{ .Values.rabbitmq.ingress.tlsSecret }}
+  {{- end }}
+{{- end }}
+{{- end }}
