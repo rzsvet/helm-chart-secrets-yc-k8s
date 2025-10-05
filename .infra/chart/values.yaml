@@ -17,6 +17,13 @@ resources: {}
 tolerations: []
 affinity: {}
 
+secretProvider: ""
+external-secret:
+    id: ""
+    namespace: ""
+
 public_env_variables: {}
   
 private_env_variables: {}
+
+nodeSelector: {}

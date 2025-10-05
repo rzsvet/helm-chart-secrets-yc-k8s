@@ -1,17 +1,13 @@
-{{- if eq .Values.secretProvider "" }}
----
 apiVersion: v1
-kind: Secret
+kind: ConfigMap
 metadata:
-  name:  {{ include "chart.fullname" . }}-secret
+  name: {{ include "chart.fullname" . }}-config
   labels:
     app.kubernetes.io/name: {{ include "chart.name" . }}
     helm.sh/chart: {{ include "chart.chart" . }}
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/managed-by: {{ .Release.Service }}
-type: Opaque
 data:
-  {{- range $key, $value := .Values.private_env_variables }}
-  {{ $key }}: {{ $value | b64enc | quote }}
+  {{- range $key, $value := .Values.public_env_variables }}
+  {{ $key }}: {{ $value | quote }}
   {{- end }}
-{{- end }}

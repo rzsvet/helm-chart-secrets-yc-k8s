@@ -28,18 +28,11 @@ spec:
           - containerPort: {{ .Values.service.appport }}
             name: {{ include "chart.name" . }}-port
             protocol: TCP
-          env:
-        {{- range $key, $value := .Values.public_env_variables }}
-          - name: {{ $key }}
-            value: {{ $value | quote }}
-        {{- end }}
-        {{- range $key, $value := .Values.private_env_variables }}
-          - name: {{ $key }}
-            valueFrom:
-              secretKeyRef:
-                name: {{ $root.Chart.Name }}-env
-                key: {{ $key }}
-        {{- end }}
+          envFrom:
+            - configMapRef:
+                name:  {{ include "chart.fullname" . }}-config
+            - secretRef:
+                name:  {{ include "chart.fullname" . }}-secret
           {{- with .Values.resources }}
           resources:
             {{- toYaml . | nindent 12 }}

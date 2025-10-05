@@ -1,4 +1,4 @@
-apiVersion: extensions/v1beta1
+apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: {{ include "chart.fullname" . }}
@@ -18,6 +18,9 @@ spec:
       http:
         paths:
         - backend:
-            serviceName: {{ include "chart.fullname" . }}
-            servicePort: http
+            service:
+              name: {{ include "chart.fullname" . }}
+              port:
+                name: http
           path: /
+          pathType: ImplementationSpecific
