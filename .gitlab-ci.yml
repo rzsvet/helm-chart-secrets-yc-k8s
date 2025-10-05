@@ -1,0 +1,185 @@
+variables:
+  GOLANG_IMAGE: "golang:1.25.1-alpine3.22"
+  IMAGE_NAME: "$CI_REGISTRY_IMAGE"
+  BINARY_NAME: "helm-secrets"
+  GOPATH: "$CI_PROJECT_DIR/.go"
+  GOCACHE: "$CI_PROJECT_DIR/.go/cache"
+
+stages:
+  - dependencies
+  - test
+  - build
+  - deploy
+  - publish
+
+cache:
+  key: "go-modules"
+  paths:
+    - .go/pkg/mod
+  policy: pull-push
+  when: on_success
+
+.golang_rules:
+  rules:
+    - if: $CI_COMMIT_BRANCH == "dev"
+      changes:
+        - cmd/**/*
+        - migrations/**/*
+        - go.mod
+        - go.sum
+      when: on_success
+
+.golang_rules_web:
+  rules:
+    - if: $CI_COMMIT_BRANCH == "dev"
+      changes:
+        - cmd/**/*
+        - migrations/**/*
+        - go.mod
+        - go.sum
+      when: on_success
+    - if: $CI_PIPELINE_SOURCE == "web"
+      when: on_success
+    - when: never
+
+# Стадия 1: Загрузка и кэширование зависимостей
+download_dependencies:
+  stage: dependencies
+  image: $GOLANG_IMAGE
+  extends: .golang_rules
+  script:
+    - echo "Downloading Go modules..."
+    - go mod download
+    - echo "Verifying dependencies..."
+    - go mod verify
+  cache:
+    key: "go-modules"
+    paths:
+      - .go/pkg/mod
+    policy: push
+    when: on_success
+  artifacts:
+    expire_in: 5 days
+    paths:
+      - .go/pkg/mod
+
+# # Стадия 2: Тестирование и линтинг
+golang_tests:
+  stage: test
+  image: $GOLANG_IMAGE
+  variables:
+    CGO_ENABLED: 1
+  extends: .golang_rules
+  dependencies:
+    - download_dependencies
+  before_script:
+    - go version
+    - apk add --no-cache gcc musl-dev
+  script:
+    - echo "Running Go tests..."
+    - go test -v -race ./...
+    - echo "Running Go vet..."
+    - go vet ./...
+    - echo "Checking code formatting..."
+    - test -z $(gofmt -l ./cmd)
+    - echo "Running static analysis..."
+    - go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+  cache:
+    key: "go-modules"
+    paths:
+      - .go/pkg/mod
+    policy: pull
+  allow_failure: true
+
+golang_linters:
+  stage: test
+  image: golangci/golangci-lint:latest-alpine
+  extends: .golang_rules
+  dependencies:
+    - download_dependencies
+  script:
+    - echo "Running golangci-lint..."
+    - golangci-lint run --timeout 5m ./...
+  cache:
+    key: "go-modules"
+    paths:
+      - .go/pkg/mod
+    policy: pull
+  allow_failure: true
+
+# Стадия 3: Сборка бинарного файла
+build_binary:
+  stage: build
+  image: $GOLANG_IMAGE
+  extends: .golang_rules_web
+  dependencies:
+    - download_dependencies
+    - golang_tests
+    - golang_linters
+  before_script:
+    - mkdir -p bin
+  script:
+    - echo "Building binary..."
+    - go build -ldflags '-w -s' -a -o ./bin/$BINARY_NAME ./cmd/helm-secrets
+    - echo "Binary size:"
+    - ls -lh ./bin/$BINARY_NAME
+    - echo "Testing binary execution..."
+    - ./bin/$BINARY_NAME --version || true
+  artifacts:
+    name: "binary-$CI_COMMIT_REF_SLUG"
+    paths:
+      - bin/
+    expire_in: 1 week
+  cache:
+    key: "go-modules"
+    paths:
+      - .go/pkg/mod
+    policy: pull
+
+
+# Стадия 4: Сборка образа
+publish_image_dev:
+  stage: publish
+  image: quay.io/buildah/stable
+  extends: .golang_rules_web
+  variables:
+    BUILDAH_FORMAT: docker
+    IMAGE_NAME: "${YC_DOCKER_REGISTRY_PATH}/apps/${CI_PROJECT_NAME}"
+  dependencies:
+    - build_binary
+  before_script:
+    - |
+      SAFE_COMMIT_BRANCH=$(echo "$CI_COMMIT_BRANCH" | sed 's/[^a-z0-9]/-/g')
+    - echo "Using safe branch name ${SAFE_COMMIT_BRANCH}"
+  script:
+    - buildah build -f Dockerfile -t ${IMAGE_NAME}:${SAFE_COMMIT_BRANCH} .
+    - buildah tag ${IMAGE_NAME}:${SAFE_COMMIT_BRANCH} ${IMAGE_NAME}:${SAFE_COMMIT_BRANCH}-${CI_PIPELINE_ID}
+    - cat $YC_KEY_PUSHER | buildah login --username json_key --password-stdin ${YC_DOCKER_REGISTRY_PATH}
+    - buildah push ${IMAGE_NAME}:${SAFE_COMMIT_BRANCH} docker://${IMAGE_NAME}:${SAFE_COMMIT_BRANCH}
+    - buildah push ${IMAGE_NAME}:${SAFE_COMMIT_BRANCH}-${CI_PIPELINE_ID} docker://${IMAGE_NAME}:${SAFE_COMMIT_BRANCH}-${CI_PIPELINE_ID}
+    - buildah logout ${YC_DOCKER_REGISTRY_PATH}
+
+publish_image_main:
+  stage: publish
+  image: quay.io/buildah/stable
+  variables:
+    BUILDAH_FORMAT: docker
+    IMAGE_NAME: "${YC_DOCKER_REGISTRY_PATH}/apps/${CI_PROJECT_NAME}"
+  before_script:
+    - |
+      SAFE_COMMIT_BRANCH=$(echo "$CI_COMMIT_BRANCH" | sed 's/[^a-z0-9]/-/g')
+    - echo "Using safe branch name ${SAFE_COMMIT_BRANCH}"
+  script:
+    - cat $YC_KEY_PUSHER | buildah login --username json_key --password-stdin ${YC_DOCKER_REGISTRY_PATH}
+    - buildah pull ${IMAGE_NAME}:dev
+    - buildah tag ${IMAGE_NAME}:dev ${IMAGE_NAME}:${SAFE_COMMIT_BRANCH}
+    - buildah tag ${IMAGE_NAME}:dev ${IMAGE_NAME}:${SAFE_COMMIT_BRANCH}-${CI_PIPELINE_ID}
+    - buildah push ${IMAGE_NAME}:${SAFE_COMMIT_BRANCH} docker://${IMAGE_NAME}:${SAFE_COMMIT_BRANCH}
+    - buildah push ${IMAGE_NAME}:${SAFE_COMMIT_BRANCH}-${CI_PIPELINE_ID} docker://${IMAGE_NAME}:${SAFE_COMMIT_BRANCH}-${CI_PIPELINE_ID}
+    - buildah logout ${YC_DOCKER_REGISTRY_PATH}
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      when: on_success
+    - if: $CI_COMMIT_BRANCH == "main" && $CI_PIPELINE_SOURCE == "web"
+      when: on_success
+    - when: never
