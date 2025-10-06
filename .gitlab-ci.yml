@@ -9,8 +9,8 @@ stages:
   - dependencies
   - test
   - build
-  - deploy
   - publish
+  - deploy
 
 cache:
   key: "go-modules"
@@ -41,6 +41,17 @@ cache:
     - if: $CI_PIPELINE_SOURCE == "web"
       when: on_success
     - when: never
+
+.helm_rules_web:
+  rules:
+    - if: $CI_COMMIT_BRANCH == "dev" || $CI_COMMIT_BRANCH == "main"
+      changes:
+        - .infra/**/*
+        - Dockerfile
+      when: on_success
+    - if: $CI_PIPELINE_SOURCE == "web"
+      when: on_success
+    - when: never    
 
 # Стадия 1: Загрузка и кэширование зависимостей
 download_dependencies:
@@ -154,9 +165,11 @@ publish_image_dev:
   script:
     - buildah build -f Dockerfile -t ${IMAGE_NAME}:${SAFE_COMMIT_BRANCH} .
     - buildah tag ${IMAGE_NAME}:${SAFE_COMMIT_BRANCH} ${IMAGE_NAME}:${SAFE_COMMIT_BRANCH}-${CI_PIPELINE_ID}
+    - buildah tag ${IMAGE_NAME}:${SAFE_COMMIT_BRANCH} ${IMAGE_NAME}:${CI_PIPELINE_ID}
     - cat $YC_KEY_PUSHER | buildah login --username json_key --password-stdin ${YC_DOCKER_REGISTRY_PATH}
     - buildah push ${IMAGE_NAME}:${SAFE_COMMIT_BRANCH} docker://${IMAGE_NAME}:${SAFE_COMMIT_BRANCH}
     - buildah push ${IMAGE_NAME}:${SAFE_COMMIT_BRANCH}-${CI_PIPELINE_ID} docker://${IMAGE_NAME}:${SAFE_COMMIT_BRANCH}-${CI_PIPELINE_ID}
+    - buildah push ${IMAGE_NAME}:${CI_PIPELINE_ID} docker://${IMAGE_NAME}:${CI_PIPELINE_ID}
     - buildah logout ${YC_DOCKER_REGISTRY_PATH}
 
 publish_image_main:
@@ -174,8 +187,10 @@ publish_image_main:
     - buildah pull ${IMAGE_NAME}:dev
     - buildah tag ${IMAGE_NAME}:dev ${IMAGE_NAME}:${SAFE_COMMIT_BRANCH}
     - buildah tag ${IMAGE_NAME}:dev ${IMAGE_NAME}:${SAFE_COMMIT_BRANCH}-${CI_PIPELINE_ID}
+    - buildah tag ${IMAGE_NAME}:dev ${IMAGE_NAME}:${CI_PIPELINE_ID}
     - buildah push ${IMAGE_NAME}:${SAFE_COMMIT_BRANCH} docker://${IMAGE_NAME}:${SAFE_COMMIT_BRANCH}
     - buildah push ${IMAGE_NAME}:${SAFE_COMMIT_BRANCH}-${CI_PIPELINE_ID} docker://${IMAGE_NAME}:${SAFE_COMMIT_BRANCH}-${CI_PIPELINE_ID}
+    - buildah push ${IMAGE_NAME}:${CI_PIPELINE_ID} docker://${IMAGE_NAME}:${CI_PIPELINE_ID}
     - buildah logout ${YC_DOCKER_REGISTRY_PATH}
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
@@ -183,3 +198,62 @@ publish_image_main:
     - if: $CI_COMMIT_BRANCH == "main" && $CI_PIPELINE_SOURCE == "web"
       when: on_success
     - when: never
+
+# Стадия 5: Установка приложения
+
+deploy:
+  stage: deploy
+  image: 
+    name: alpine/helm:3.19
+    entrypoint: [""]
+  variables:
+    GIT_STRATEGY: clone
+    IMAGE_NAME: "${YC_DOCKER_REGISTRY_PATH}/apps/${CI_PROJECT_NAME}"
+  extends: .helm_rules_web
+  environment:
+    name: $CI_COMMIT_BRANCH
+    url: "https://app-$CI_COMMIT_BRANCH.${INGRESS_HOST}"
+  before_script:
+    # Обновляем пакеты и устанавливаем зависимости
+    - apk update
+    - apk add --no-cache gnupg git curl gpgme
+    # Устанавливаем SOPS
+    - |
+      if ! command -v sops &> /dev/null; then
+        echo "Installing SOPS..."
+        curl -Lo /usr/local/bin/sops https://github.com/mozilla/sops/releases/download/v3.7.1/sops-v3.7.1.linux
+        chmod +x /usr/local/bin/sops
+      fi
+    # Устанавливаем helm-secrets plugin
+    - |
+      if ! helm plugin list | grep -q secrets; then
+        echo "Installing helm-secrets plugin..."
+        helm plugin install https://github.com/jkroepke/helm-secrets --version v4.6.10
+      fi
+  script:
+    # Проверяем наличие переменной с GPG ключом
+    - |
+      if [ -z "${GPG_PRIVATE_KEY}" ]; then
+        echo "Error: GPG_PRIVATE_KEY variable is not set"
+        exit 1
+      fi
+    # Импортируем GPG ключ
+    - gpg --armor --import ${GPG_PRIVATE_KEY}
+    # Проверяем успешность импорта
+    - |
+      if ! gpg --list-secret-keys --keyid-format LONG; then
+        echo "Error: Failed to import GPG key"
+        exit 1
+      fi
+    # Устанавливаем или обновляем релиз
+    - cd .infra
+    - helm secrets upgrade --install -n ${CI_COMMIT_BRANCH} helm-secret ./chart -f values.yaml -f secrets.${CI_COMMIT_BRANCH}.yaml --set image.repository=${IMAGE_NAME} --set image.tag=${CI_PIPELINE_ID} --kube-insecure-skip-tls-verify
+    # Проверяем статус установки
+    - helm status helm-secret -n ${CI_COMMIT_BRANCH} --kube-insecure-skip-tls-verify
+  after_script:
+    # Безопасно очищаем GPG ключи
+    - |
+      if [ -n "$(gpg --list-secret-keys --with-colons | grep '^sec:')" ]; then
+        gpg --batch --yes --delete-secret-keys $(gpg --list-secret-keys --with-colons | grep '^sec:' | cut -d: -f5)
+        echo "GPG keys cleaned up"
+      fi

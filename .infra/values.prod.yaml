@@ -1,7 +1,0 @@
-public_env_variables:
-  LISTEN: ":8080"
-
-secretProvider: ""
-externalSecret:
-    id: "e6qhla251c2b8nr2s5dq"
-    namespace: "external-secrets-operator"
