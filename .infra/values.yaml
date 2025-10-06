@@ -1,3 +1,7 @@
+ingress:
+  enabled: true
+  className: "nginx"
+
 public_env_variables:
   GIN_MODE: "release"
   MIGRATION_PATH: "/migrations"
