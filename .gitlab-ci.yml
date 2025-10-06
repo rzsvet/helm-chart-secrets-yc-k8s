@@ -247,7 +247,7 @@ deploy:
       fi
     # Устанавливаем или обновляем релиз
     - cd .infra
-    - helm secrets upgrade --install --create-namespace -n ${CI_COMMIT_BRANCH} helm-secret ./chart -f values.yaml -f secrets.${CI_COMMIT_BRANCH}.yaml --set image.repository=${IMAGE_NAME} --set image.tag=${CI_PIPELINE_ID}
+    - helm secrets upgrade --kube-insecure-skip-tls-verify --install --create-namespace -n ${CI_COMMIT_BRANCH} helm-secret ./chart -f values.yaml -f secrets.${CI_COMMIT_BRANCH}.yaml --set image.repository=${IMAGE_NAME} --set image.tag=${CI_PIPELINE_ID}
     # Проверяем статус установки
     - helm status helm-secret -n "${CI_COMMIT_BRANCH}"
   after_script:
