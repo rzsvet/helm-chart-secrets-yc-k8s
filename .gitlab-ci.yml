@@ -248,6 +248,7 @@ deploy:
     - cd .infra
     - |
       if [ "$INFRA_CHANGED" = "infra_changes" ]; then
+        echo "✅ Job запущен из-за изменений в .infra"
         DEPLOY_TAG="${CI_COMMIT_BRANCH}"
       else
         DEPLOY_TAG="${CI_PIPELINE_ID}"
