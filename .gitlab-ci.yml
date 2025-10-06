@@ -247,9 +247,9 @@ deploy:
       fi
     # Устанавливаем или обновляем релиз
     - cd .infra
-    - helm secrets upgrade --kube-insecure-skip-tls-verify --install --create-namespace -n ${CI_COMMIT_BRANCH} helm-secret ./chart -f values.yaml -f secrets.${CI_COMMIT_BRANCH}.yaml --set image.repository=${IMAGE_NAME} --set image.tag=${CI_PIPELINE_ID}
+    - helm secrets upgrade --install -n ${CI_COMMIT_BRANCH} helm-secret ./chart -f values.yaml -f secrets.${CI_COMMIT_BRANCH}.yaml --set image.repository=${IMAGE_NAME} --set image.tag=${CI_PIPELINE_ID} --kube-insecure-skip-tls-verify
     # Проверяем статус установки
-    - helm status helm-secret -n "${CI_COMMIT_BRANCH}"
+    - helm status helm-secret -n ${CI_COMMIT_BRANCH} --kube-insecure-skip-tls-verify
   after_script:
     # Безопасно очищаем GPG ключи
     - |
