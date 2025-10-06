@@ -16,5 +16,5 @@ rabbitmq:
   image:
     repository: cr.yandex/crpmdfgl9uu5ko21plpc/services/rabbitmq
     tag: 4.1.4-management-alpine
-  imagePullSecrets: 
+  imagePullSecrets:
     - name: docker-config-json-puller

@@ -29,29 +29,20 @@ cache:
         - go.sum
       when: on_success
 
-.golang_rules_web:
+.deploy_rules:
   rules:
     - if: $CI_COMMIT_BRANCH == "dev"
       changes:
+        - .infra/**/*
+        - Dockerfile
         - cmd/**/*
         - migrations/**/*
         - go.mod
         - go.sum
       when: on_success
-    - if: $CI_PIPELINE_SOURCE == "web"
+    - if: $CI_MERGE_REQUEST_IID
       when: on_success
-    - when: never
-
-.helm_rules_web:
-  rules:
-    - if: $CI_COMMIT_BRANCH == "dev" || $CI_COMMIT_BRANCH == "main"
-      changes:
-        - .infra/**/*
-        - Dockerfile
-      when: on_success
-    - if: $CI_PIPELINE_SOURCE == "web"
-      when: on_success
-    - when: never    
+    - when: never   
 
 # Стадия 1: Загрузка и кэширование зависимостей
 download_dependencies:
@@ -122,7 +113,7 @@ golang_linters:
 build_binary:
   stage: build
   image: $GOLANG_IMAGE
-  extends: .golang_rules_web
+  extends: .golang_rules
   dependencies:
     - download_dependencies
     - golang_tests
@@ -147,12 +138,11 @@ build_binary:
       - .go/pkg/mod
     policy: pull
 
-
 # Стадия 4: Сборка образа
 publish_image_dev:
   stage: publish
   image: quay.io/buildah/stable
-  extends: .golang_rules_web
+  extends: .golang_rules
   variables:
     BUILDAH_FORMAT: docker
     IMAGE_NAME: "${YC_DOCKER_REGISTRY_PATH}/apps/${CI_PROJECT_NAME}"
@@ -175,6 +165,10 @@ publish_image_dev:
 publish_image_main:
   stage: publish
   image: quay.io/buildah/stable
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main" && $CI_MERGE_REQUEST_IID
+      when: on_success
+    - when: never 
   variables:
     BUILDAH_FORMAT: docker
     IMAGE_NAME: "${YC_DOCKER_REGISTRY_PATH}/apps/${CI_PROJECT_NAME}"
@@ -192,12 +186,6 @@ publish_image_main:
     - buildah push ${IMAGE_NAME}:${SAFE_COMMIT_BRANCH}-${CI_PIPELINE_ID} docker://${IMAGE_NAME}:${SAFE_COMMIT_BRANCH}-${CI_PIPELINE_ID}
     - buildah push ${IMAGE_NAME}:${CI_PIPELINE_ID} docker://${IMAGE_NAME}:${CI_PIPELINE_ID}
     - buildah logout ${YC_DOCKER_REGISTRY_PATH}
-  rules:
-    - if: $CI_COMMIT_BRANCH == "main"
-      when: on_success
-    - if: $CI_COMMIT_BRANCH == "main" && $CI_PIPELINE_SOURCE == "web"
-      when: on_success
-    - when: never
 
 # Стадия 5: Установка приложения
 
@@ -209,7 +197,7 @@ deploy:
   variables:
     GIT_STRATEGY: clone
     IMAGE_NAME: "${YC_DOCKER_REGISTRY_PATH}/apps/${CI_PROJECT_NAME}"
-  extends: .helm_rules_web
+  extends: .deploy_rules
   environment:
     name: $CI_COMMIT_BRANCH
     url: "https://app-$CI_COMMIT_BRANCH.${INGRESS_HOST}"
