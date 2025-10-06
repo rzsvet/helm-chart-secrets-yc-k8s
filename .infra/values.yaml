@@ -1,3 +1,6 @@
+ingress:
+  enabled: true
+
 public_env_variables:
   GIN_MODE: "release"
   MIGRATION_PATH: "/migrations"
