@@ -253,7 +253,16 @@ deploy:
       else
         DEPLOY_TAG="${CI_PIPELINE_ID}"
       fi
-    - helm secrets upgrade --install -n ${CI_COMMIT_BRANCH} helm-secret ./chart -f values.yaml -f secrets.${CI_COMMIT_BRANCH}.yaml --set image.repository=${IMAGE_NAME} --set image.tag=${DEPLOY_TAG} --set ingress.hosts[0].host=${CI_COMMIT_BRANCH}.${INGRESS_HOST} --kube-insecure-skip-tls-verify
+    - |
+      helm secrets upgrade --install -n ${CI_COMMIT_BRANCH} helm-secret ./chart \
+        -f values.yaml \
+        -f secrets.${CI_COMMIT_BRANCH}.yaml \
+        --set image.repository=${IMAGE_NAME} \
+        --set image.tag=${DEPLOY_TAG} \
+        --set ingress.hosts[0].host=${CI_COMMIT_BRANCH}.${INGRESS_HOST} \
+        --set ingress.hosts[0].paths[0].path="/" \
+        --set ingress.hosts[0].paths[0].pathType=ImplementationSpecific \
+        --kube-insecure-skip-tls-verify 
     # Проверяем статус установки
     - helm status helm-secret -n ${CI_COMMIT_BRANCH} --kube-insecure-skip-tls-verify
   after_script:
