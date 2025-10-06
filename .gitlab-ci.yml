@@ -28,6 +28,9 @@ cache:
         - go.mod
         - go.sum
       when: on_success
+    - if: $CI_COMMIT_BRANCH == "dev" && $CI_PIPELINE_SOURCE == "web"
+      when: on_success
+    - when: never
 
 .deploy_rules:
   rules:
@@ -40,7 +43,9 @@ cache:
         - go.mod
         - go.sum
       when: on_success
-    - if: $CI_MERGE_REQUEST_IID
+    - if: $CI_COMMIT_BRANCH == "dev" && $CI_PIPELINE_SOURCE == "web"
+      when: on_success      
+    - if: $CI_COMMIT_BRANCH == "main" && $CI_MERGE_REQUEST_IID
       when: on_success
     - when: never   
 
